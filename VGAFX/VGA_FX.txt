@@ -1,0 +1,781 @@
+                VGA TEXT ATTRIBUTES AND SPECIAL EFFECTS
+
+                            by Chris Dunford
+
+
+While working on a project recently, I realized that I didn't know very
+much about how VGA text attributes work.  I knew that there wasn't a
+simple one-to-one relationship between attribute numbers and colors, but
+that's about it.  So, I did a little research and fooling around, and
+found that lots of interesting effects are possible.  You can draw
+people's attention to important screen information in ways more (and
+less!) subtle than simply flashing it on and off or using intensified
+colors.  For example, you can have colors that gradually shade from
+normal to high intensity and back, "pulsing" on the screen; you can
+display text that changes from one color to another (gradually shading
+from blue to red and back, for example); you can soften blinking by
+having the color "fade" rather than just disappear.  And, there are some
+things you can do under software control that can't be done with the
+usual hardware attributes; for example, you can use flashing
+backgrounds, or you can using flashing foregrounds without sacrificing
+high intensity backgrounds.  These can be done very efficiently, without
+the need to change the attributes of individual characters.
+
+This document is an attempt to share some of what I learned; it
+explains how VGA text attributes work, and how these effects are
+possible.  The archive that contains this document should also contain
+a demo program and a linkable object module (with source) that allow
+you to use the effects in your own programs.  You might want to do a
+quick run of DEMO1 to see some of the possible effects in action.
+
+
+What's different with the VGA?
+------------------------------
+The CGA implemented a direct relationship between a 4-bit attribute and
+a color.  Each attribute mapped to one color, and the color could not be
+changed.
+
+That changed with the EGA (which had palette registers to play with),
+and changed again, radically, with the VGA.  The attribute number
+specifies the displayed color very indirectly; it is combined with bits
+and pieces of 5 different internal VGA registers before it appears on
+the screen as one of the 262,144 possible colors.  There are therefore
+several ways to change a character's color other than by changing its
+attribute.  And, of course, if you change the way an attribute is
+displayed, all characters with that attribute are affected.  Thus, it is
+possible to "design" attributes with interesting effects, and to alter
+the way entire screen fields are displayed very efficiently.
+
+
+Mapping attributes to colors
+----------------------------
+Before we start, let me note that we are working here with 4-bit
+attributes.  The 8-bit attribute that's associated with a character is,
+of course, two 4-bit attributes: one for the foreground, and one for the
+background.  This document discusses how these 4-bit attributes become
+colors; everything here applies equally to foreground and background
+attributes (thus it is possible to use flashing backgrounds, etc.)
+
+Screen colors in text modes are controlled by the VGA's attribute
+controller.  In one of its two modes (the one that the PS/2 BIOS sets
+by default), here is how a color is selected by an attribute:
+
+                 AND
+    attribute |-------| color plane enable register
+                  |
+                  | selects
+                  |
+         palette register 0-15     color select register
+                  |                         |
+                  |                         |
+                  | bits 0-5       bits 6-7 |
+                  +------------+------------+
+                               |
+                               |      AND
+                               +-------+--------video DAC mask register
+                                       |
+                                       | selects
+                                       |
+                          video DAC color register 0-255
+
+This appears complex, but it can be simplified.  First, notice the two
+logical AND operations.  Since both the color plane enable register and
+the video DAC mask register normally contain all ones, they tend to drop
+out of the picture, resulting in:
+
+              attribute 0-15
+                  |
+                  | selects
+                  |
+         palette register 0-15     color select register
+                  |                         |
+                  |                         |
+                  | bits 0-5       bits 6-7 |
+                  +------------+------------+
+                               |
+                               | selects
+                               |
+                 video DAC color register 0-255
+
+The 4-bit attribute (0-15) selects one of the 16 palette registers.  The
+palette register contains a number.  This number is combined with the
+contents of the color select register to form another number.  For
+example, suppose:
+
+    attribute = 13
+    palreg[13] = 1Bh
+    CSR = 3
+
+Attribute 13 selects palette register 13, which contains 1BH.  The color
+select register contains 3. We put the contents of the color select
+register in bits 6-7 of the final number, and the contents of palreg[13]
+in bits 0-5:
+
+    3  1B
+    -  --
+    11 011011
+
+The resulting number is 11011011 binary, 219 decimal.  This number
+selects one of the 256 video DAC color registers.
+
+A C-like formula for the video DAC color resgister selection is:
+
+    r = (p[a] & 0x3F) | ((c << 6) & 0xC0)
+
+where r is the DAC color register number, p[] is the array of 16 palette
+registers, a is the attribute number (0..15), and c is the current
+contents of the color select register.
+
+The color that will be displayed is the color defined by the selected
+video DAC color register (DAC stands for Digital-to-Analog Converter).
+Each video DAC register is an 18-bit register that contains three 6-bit
+values: one for each of the red, green, and blue primary colors.  Each
+value specifies the intensity of that primary color on the screen.  A
+zero for a primary means that it's not included in the color; 63 is
+maximum intensity.
+
+Suppose, in our example, that video DAC register 219 contains the
+numbers 0, 3FH, and 3FH (it's convenient to think of the register as
+three 6-bit values rather than one 18-bit value).  This means that red
+will be off, and green and blue will be at maximum intensity.  The color
+displayed by attribute 13 will be bright cyan.
+
+Notice that you could change the color of a character with FG attribute
+N in four different ways:
+
+    1. Change the attribute
+    2. Change the contents of palreg[N]
+    3. Change the contents of the video DAC register specified by
+       palreg[N] and the color select register
+    4. Change the contents of the color select register
+
+These all have different effects on the total screen display.  Changing
+an attribute affects a single character; changing a palette register
+affects all characters with that attribute; changing a video DAC
+register affects any character whose attribute, when combined with color
+select, selects that register--this could be several attributes;
+changing the color select register could very well affect everything on
+the screen.
+
+
+Another way to visualize color selection
+----------------------------------------
+There is a simpler way to look at the process.  The two bits used from
+the color select register always end up in the high two bits of the
+video DAC color register number.  Thus, the selected DAC color register
+will always be one of:
+
+    CSR=0: 00xx xxxx  (register range 0-63)
+    CSR=1: 01xx xxxx  (64-127)
+    CSR=2: 10xx xxxx  (128-191)
+    CSR=3: 11xx xxxx  (192-255)
+
+The remaining 6 bits come directly from the selected palette register.
+
+If we break the 256 video DAC color registers into four palettes of 64
+colors each, as follows:
+
+    DAC registers   Palette
+         0-63          0
+       64-127          1
+      128-191          2
+      192-255          3
+
+then the color select register selects one of the four 64-color
+palettes, and the palette register (which is selected by the attribute)
+selects one of the 64 colors of the CSR-selected palette.
+
+Thus, it's simply stated:  the attribute selects one of the 64 colors
+available from the palette selected by the color select register.
+
+
+Mode 1
+------
+I mentioned that the above represents one of the two modes supported by
+the attribute controller; call it "mode 0".  The other mode (mode 1) is
+very similar; the only difference is in which bits are combined from the
+palette register and the color select register.  The simplified diagram
+is as follows:
+
+              attribute 0-15
+                  |
+                  | selects
+                  |
+         palette register 0-15     color select register
+                  |                         |
+                  |                         |
+                  | bits 0-3       bits 4-7 |
+                  +------------+------------+
+                               |
+                               | selects
+                               |
+                 video DAC color register 0-255
+
+The difference is that there are four bits each from the palette
+register and the color select register (instead of 6 and 2 under the
+mode 0).
+
+A C-like formula for the video DAC color resgister selection in mode 1:
+
+    r = (p[a] & 0x0F) | ((c << 4) & 0xF0)
+
+The effect of mode 1 is that the 256 video DAC color registers are
+broken down into sixteen 16-color palettes instead of four 64-color
+palettes:
+
+    DAC registers   Palette
+         0-15          0
+        16-31          1
+        32-47          2
+         ...
+      240-255         15
+
+The palette register (still selected by the attribute) selects one of
+the 16 colors available in the palette selected by the current color
+select register.
+
+The more complex effects (graded color changes, pulsing, etc.) of the
+demo program DEMO1 are generated under mode 1. This is because all 256
+colors defined by the video DAC color registers can be accessed by
+simply changing the contents of the color select register, which is very
+efficient (it takes about 1/100th of a second).
+
+Under mode 0, only 75% of the available colors can be accessed by just
+changing the color select register (this is because there are 64 colors
+per palette, but only 16 attributes).  To get to the remaining colors,
+you have to change the palette registers.  But there are 16 palette
+registers; if you need to alter more than one displayed color, this is
+less efficient than using the color select register.
+
+
+A mode 1 technique
+------------------
+As mentioned, there are a number of ways to alter displayed colors.  I
+will concentrate on one technique: creating a series of palettes and
+then switching palettes by systematically changing the contents of the
+color select register.  This document concentrates on mode 1; some of
+the same effects (such as periodic intensification and simulated
+blinking) can be obtained in mode 0.
+
+Note that the use of mode 1 largely dictates that you must reinitialize
+the palette registers.  The VGA BIOS initializes some of these registers
+with values greater than 15; these will be masked in mode 1 to the low
+4 bits, yielding values in the range 0..15.  These values will probably
+not result in the colors you intend (two attributes will yield red
+foreground, for example).  The simplest solution is to just fill the
+palette registers sequentially with numbers from 0..15; this largely
+causes the palregs to drop out of the picture:  attribute N will map
+directly to color N within the palette selected by the color select
+register.
+
+Assuming that the palette registers are set as described, create a
+"base" palette in palette 0. That is, fill palette 0 (video DAC color
+registers 0-15) with 16 base color definitions.  It makes sense to set
+the standard color combinations for the 16 CGA-like colors that people
+will expect to see (color intensity values in hex):
+
+    DAC regs  Attr  R   G   B   Color
+      0-2      0    0   0   0   Black
+      3-5      1    0   0  2A   Blue
+      6-8      2    0  2A   0   Green
+      9-11     3    0  2A  2A   Cyan
+      12-14    4   2A   0   0   Red
+      15-17    5   2A   0  2A   Magenta
+      18-20    6   2A  2A   0   Brown
+      21-23    7   2A  2A  2A   White
+      24-26    8    0   0  15   "Gray" (not really)
+      27-29    9    0   0  3F   Bright blue
+      30-32   10    0  3F   0   Bright green
+      33-35   11    0  3F  3F   Bright cyan
+      36-38   12    3F  0   0   Bright red
+      39-41   13    3F  0  3F   Bright magenta
+      42-44   14    3F 3F   0   Yellow
+      45-47   15    3F 3F  3F   Intense white
+
+(In practice, I use 33h in place of 3Fh.  This leaves some room to flash
+even the bright colors by intensification.)
+
+The second step is to duplicate palette 0 into palettes 1-15, and then
+vary the color definitions for attributes of interest in some systematic
+way.  For example, let's specify that attribute 1 is not going to be
+"blue"; it's going to be a green that continuously cycles from normal
+intensity to high intensity and back.  The effect is similar to flashing
+text, but more subtle.  To do this, set the colors for attribute 1 in
+each of the palettes as follows:
+
+    Palette  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+      R      0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
+      G     2A 2C 2E 31 33 35 36 37 38 39 3A 3B 3C 3D 3E 3F
+      B      0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
+
+Note that the intensity of the green primary slowly increases from
+normal (2A) in palette 0 to maximum intensity (3F) in palette 1. Also
+note that attribute 1 no longer has anything to do with blue--it's
+green.  (See below for information on how to set a video DAC color
+register definition.)
+
+If these values are loaded into the video DAC color registers, and you
+then sequence through the palettes in a cyclical pattern (0->15->0),
+characters with attribute 1 will slowly "pulse" from green to bright
+green.  The effect is more subtle--and readable--than simply switching
+the characters off and on.
+
+The palette change is easily and efficiently accomplished by setting the
+color select register--say, in a timer tick intercept routine.  Using a
+timer intercept is an ideal way to accomplish this sort of special
+effect.  Unlike hardware flashing, the special effects described in this
+document must be accomplished by your software.  Using an externally
+triggered routine allows this to occur in background; you simply set up
+the attributes the way you want them and then go about your work.  The
+special effects will continue to be generated even when you're in DOS or
+BIOS, say, waiting for a keystroke.  The skeleton for a typical timer
+routine might be (assume that DELTA, COUNT, and RESET are all
+initialized to 1):
+
+    count = count - 1
+    if count = 0 then
+        palette = palette+delta
+        if palette > 15 then
+            palette = 15
+            delta = -delta
+        else if palette < 0 then
+            palette = 0
+            delta = -delta
+        end
+        set color select register to palette
+        count = reset
+    end
+
+This is both efficient and flexible:  the blink rate can be adjusted by
+altering the values of either DELTA and RESET (or both).  Increasing
+DELTA causes the blink rate to speed up by skipping palettes; increasing
+RESET slows the blinking by skipping clock ticks.  Be sure that PALETTE
+and DELTA are treated as signed numbers.  (Note that FLASH1 uses a
+slughtly fancier technique.)
+
+
+Effects
+-------
+Many "special effects" are possible using this technique.  "Pulsing" has
+already been discussed; here are some others:
+
+
+PERIODIC INTENSIFICATION
+
+Pulsing is a gradual change from a low intensity color to a high
+intensity color.  The effect can be hardened by using the normal color
+for half of the palettes and an intnsified version for the other half.
+For example, the following palettes flash cyan to bright cyan:
+
+    Palette  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+      R      0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
+      G     2A 2A 2A 2A 2A 2A 2A 2A 3F 3F 3F 3F 3F 3F 3F 3F
+      B     2A 2A 2A 2A 2A 2A 2A 2A 3F 3F 3F 3F 3F 3F 3F 3F
+
+The effect can be varied by altering the ratio of low intensity palettes
+to high intensity palettes ("beacons", below, are simply extreme cases
+of periodic intensification).
+
+
+COLOR CHANGES
+
+Another effect is to flash text from one color to another.  This set of
+palettes flashes bright green text to bright red.  It's quite an eye
+catcher:
+
+    Palette  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+      R      0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
+      G     3F 3F 3F 3F 3F 3F 3F 3F  0  0  0  0  0  0  0  0
+      B      0  0  0  0  0  0  0  0 3F 3F 3F 3F 3F 3F 3F 3F
+
+
+GRADED COLOR CHANGES
+
+An interesting effect is to "grade" one color into another.  Rather than
+simply flashing green to red, change it gradually by fading out the
+green primary and fading in the red:
+
+    Palette  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+      R      0  2  4  6  9 0C 0F 12 15 18 1B 1E 21 24 27 2A
+      G     2A 27 24 21 1E 1B 18 15 12 0F 0C  9  6  4  2  0
+      B      0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
+
+This attribute will still change from green to red, but the change is
+not instantaneous; it slowly fades from one color to the other, passing
+through various other unnamed colors (all combinations of red and green)
+on the way.
+
+
+SIMULATED FLASHING
+
+Regular hardware flashing can be simulated via a variant of the above
+scheme; simply use the background color for half of the palettes (or the
+foreground color, if you want to flash the background):
+
+    Palette  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+      R     3F 3F 3F 3F 3F 3F 3F 3F  0  0  0  0  0  0  0  0
+      G     3F 3F 3F 3F 3F 3F 3F 3F  0  0  0  0  0  0  0  0
+      B      0  0  0  0  0  0  0  0 2A 2A 2A 2A 2A 2A 2A 2A
+
+The example flashes yellow text if displayed on a blue background.
+
+
+SOFTENED FLASHING
+
+By placing the background attribute in half of the palettes (as for
+flashing) and fading out the foreground in the other half, a softer
+version of flashing is possible:
+
+    Palette  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+      R      0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
+      G     2A 24 1E 19 14 0F 0A  5  0  0  0  0  0  0  0  0
+      B     2A 24 1E 19 14 0F 0A  5  0  0  0  0  0  0  0  0
+
+The example shows softened flashing of cyan text on a black background.
+If any of the background primaries are also components of the
+foreground color, do not fade those:
+
+    Palette  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+      R      0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
+      G     2A 24 1E 19 14 0F 0A  5  0  0  0  0  0  0  0  0
+      B     2A 2A 2A 2A 2A 2A 2A 2A 2A 2A 2A 2A 2A 2A 2A 2A
+
+The example shows softened flashing of cyan on blue.
+
+
+FADING
+
+This is an even softer version of flashing text.  It fades the foregound
+over the full 16 palettes by grading the foregound color into the
+background color.
+
+    Palette  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+      R      0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
+      G     2A 27 24 21 1E 1B 18 15 12 0F 0C  9  6  4  2  0
+      B      0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
+
+The example fades a green foreground into a black background.  If the
+background is a color other than black, just use a graded color change
+from the FG color to the BG color.
+
+
+STROBES AND BEACONS
+
+These are two final sample effects.  A strobe is a color that's
+invisible most of the time (BG=FG) but flashes briefly to maximum
+intensity.  The follow palettes strobe yellow when used with a blue
+background:
+
+    Palette  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+      R      0  0  0  0  0  0  0  0  0  0  0  0  0  0  0 3F
+      G      0  0  0  0  0  0  0  0  0  0  0  0  0  0  0 3F
+      B     2A 2A 2A 2A 2A 2A 2A 2A 2A 2A 2A 2A 2A 2A 2A  0
+
+A beacon is a low intensity color that briefly flashes to maximum
+intensity.  The following palletes create a blue beacon:
+
+    Palette  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+      R      0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
+      G      0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
+      B     20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 3F
+
+Note to programmers:  if you use the routines provided in FLASH1.ASM,
+note that only palettes that are a multiple of DELTA are ever used.
+E.g., if DELTA is 2, palette 15 will not be used; put the strobe or
+beacon color in palette 14 instead.
+
+
+Advantages/disadvantages
+------------------------
+Creating special effects in this manner has several advantages over
+using hardware effects (such as flashing), and some disdvantages.  Among
+the advantages are:
+
+    - MANY more effects are possible; I have mentioned only a few of the
+      possibilities.
+    - Transition rates are under your control; the hardware blink rate
+      is fixed.
+    - Effects can be mixed on one screen (one attribute could be a
+      strobe, another a graded color change).
+    - Any effect can be applied to background as well as foreground.
+
+Among the disadvantages are:
+
+    - Additional programming effort is required, along with increased
+      code and data storage.
+    - A background timer routine, if used, has some effect on system
+      efficiency (but it's small).
+    - Effects are associated with attribute numbers, not with bit
+      positions.
+
+The last one bears some explanation.  Hardware blinking is associated
+with a single bit (bit 7) of the FG/BG attribute byte.  Thus, you have
+16 FG colors, all of which can be flashed.  Software-controlled special
+effects, however, are associated with attributes.  If you set, say,
+attribute 6 to be pulsed green, you no longer have a brown attribute
+available.  Thus, the number of effective "base" colors is reduced for
+each special effect attribute you create.
+
+
+Mode 0
+------
+I have covered attribute control mode 1 in some detail, but some of the
+same effects can be accomplished in mode 0.  The primary difference is
+that you have only four palettes to work with.  The simpler effects such
+as color changes, periodic intensification, and simulated blink can
+easily be accomplished in mode one by putting the second color in
+palette 1, and then alternating between palettes 0 and 1.
+
+More complex effects would require periodic alterations to the palette
+registers and/or color plane enable register.
+
+
+Programming
+-----------
+The programming required to accomplish these special effects is
+relatively straightforward.  The VGA BIOS provides all necessary
+services; no register-level progamming is required (but see the next
+section). Useful BIOS services are described below.
+
+The only element that might need clarification is how to alter a color
+definition in a video DAC color register.  BIOS provides services to set
+a single color (BIOS video function 10h, subfunction 10h) and to set a
+whole block of colors (function 10h, subfunction 12h).  If you are
+altering a few colors only, setting them individually is efficient, but
+it's more efficient to update larger numbers of colors by reloading the
+entire set of registers.
+
+Video function 10h, subfunction 17h reads a block of DAC color registers
+into memory allocated by your program.  Each 18-bit register is split
+into three bytes, one for each of the red, green, and blue primaries (in
+that order).  If you read all 256 registers, 3*256 or 768 bytes of
+storage will be required.
+
+To obtain the video DAC register number for a particular color in a
+particular palette, the formula is:
+
+    r = 64*p + pr[a]  (mode 0)
+    r = 16*p + pr[a]  (mode 1)
+
+where r=register number, p=palette number, pr[] is the array of 16
+palette registers, and a=attribute number.
+
+The array of palette registers can be read and set via video function
+10, subfunctions 9 and 2 respectively.  Note that if you have set the
+palette registers sequentially (pr[0]=0, pr[1]=1,...,pr[15]=15), then
+they drop out of the picture for calculation purposes, and the formula
+becomes:
+
+    r = 64*p + a  (mode 0)
+    r = 16*p + a  (mode 1)
+
+To locate the offset of the 3-byte color definition for a specific
+video DAC color register within the table described above:
+
+    o = r * 3
+
+where r is the register number described above.
+
+A combined formula that locates an absolute address of the definition
+of a particular attribute/palette combination:
+
+    address = base + 64*p + pr[a] (mode 0)
+    address = base + 16*p + pr[a] (mode 1)
+
+where base is the base address of the table.  The function GET_DAC_PTR
+in FLASH1.ASM performs this calculation.
+
+To alter the displayed color for a palette/register combination,
+calculate the address of its definition, alter the R/G/B bytes as
+desired, and use video BIOS function 10h, subfunction 12h.  Because
+this sunfunction can reload the entire set of DAC color registers,
+you can alter as many registers as you want in one shot.
+
+To alter the definitions for a particular attribute in all 16 palettes,
+just locate the first one (palette 0).  The definitions for subsequent
+palettes will follow at intervals of 16*3 or 48 (30h) bytes in mode 1,
+or at intervals of 64*3 bytes in mode 0. For example, if the mode 1
+definition for attribute 8 in palette 0 is at 1000h, attribute 8 in
+palette 1 will be at 1030h, in palette 2 at 1060h, etc.
+
+
+Changing the current palette (color select register)
+----------------------------------------------------
+A palette is selected by setting the contents of the color select
+register to the desired palette number.  This can be done by using a
+BIOS video service as described below (int 10H, function 10H,
+subfunction 13h, BL=1).  This takes about 1/100th of a second and can
+easily be done from within a timer intercept routine without any real
+problems.
+
+However, you may want to set the color select register using register
+level programming, for one reason:  programs such as screen blankers may
+be watching for BIOS video activity.  If you use BIOS services to change
+the palette 18 times a second, your user's screen will never blank.  The
+technique is shown in the timer routine in FLASH1.ASM.  It is assembled
+only if the equate USE_BIOS is zero during assembly.  If USE_BIOS is
+nonzero, FLASH1 is assembled to use the BIOS service for palette
+switching.  There is no significant difference in efficiency between
+using BIOS and programming the registers yourself; most of the time is
+spent in waiting for a video retrace (and you thought you were through
+with that when you got rid of your CGA, didn't you).
+
+The demo (DEMO1.ASM) was assembled with USE_BIOS off.
+
+
+The linkable object module
+--------------------------
+FLASH1.OBJ(ASM) provides a linkable object module that can be used to
+generate all of the special effects described above, and others.
+
+The module is organized for COM files; adjusting for other models should
+be relatively painless.  The primary assumption is that DS=ES; there is
+no assumption that CS=DS (except in the timer intercept), or any
+explicit use of the stack.
+
+The module prologue describes the services available.  Be sure to call
+FLASH_INIT when you start and FLASH_TERM when you exit.
+
+The demo program (DEMO1.ASM) demonstrates use of the module.
+
+
+BIOS services
+--------------
+The VGA BIOS supports all necessary manipulation of VGA registers,
+including the ability to read register contents (for state restoration
+when you are done).  All of the following are accessed through the
+standard video BIOS service call (int 10h), function 10h.  To use video
+BIOS:
+
+    ; Set reg AL and others as needed
+    mov ah,10h
+    int 10h
+
+Most of these functions are reasonably efficient.  An operation such as
+setting the color select register can easily be accomplished within an
+interrupt service routine.
+
+
+PALETTE REGISTERS
+
+    Read one palette register
+        Entry:
+            AL=7
+            BL=palette register number (0-15)
+        Return:
+            BH=palette register value
+
+    Set one palette register
+        Entry:
+            AL=0
+            BH=color value
+            BL=palette register number (0-15)
+        Return:
+            none
+
+    Read all palette registers
+        Entry:
+            AL=9
+            ES:DX -> 17-byte buffer
+        Return:
+            ES:DX[0..15] = current palette regs
+            ES:DX[16] = current overscan (border) color value
+
+    Set all palette registers
+        Entry:
+            AL=2
+            ES:DX -> 17-byte buffer (formatted as for function 9)
+        Return:
+            None
+
+
+VIDEO DAC REGISTERS
+
+    Read one video DAC register
+        Entry:
+            AL=15h
+            BX=register number (0..255)
+        Return:
+            CH=green intensity (0..63)
+            CL=blue intensity (0..63)
+            DH=red intensity (0..63)
+
+    Set one video DAC register
+        Entry:
+            AL=10h
+            BX=register number (0..255)
+            CH=green intensity (0..63)
+            CL=blue intensity (0..63)
+            DH=red intensity (0..63)
+        Return:
+            none
+
+    Read a block of video DAC registers
+        Entry:
+            AL=17H
+            BX=first register (0..255)
+            CX=number of registers
+            ES:DX -> buffer
+        Return:
+            On return, the buffer is filled with video DAC color values.
+            The first 3 bytes contain the R/G/B values for the first
+            specified register, etc.  The buffer should be of size 3*CX
+            or more.  Ensure that BX+CX <= 256.
+
+    Set a block of video DAC color registers
+        Entry:
+            AL=12H
+            BX=first register (0..255)
+            CX=number of registers
+            ES:DX -> buffer
+               The buffer is formatted as for function 12H.  Ensure
+               that BX+CX <= 256.
+        Return:
+            None
+
+ATTRIBUTE CONTROL MODE/COLOR SELECT REGISTER
+
+    Read attribute control mode and color select register
+        Entry:
+            AL=1AH
+        Return
+            BL=current attribute control mode (0/1)
+            BH=color select register contents
+
+    Set attribute control mode
+        Entry:
+            AL=13H
+            BL=0
+            BH=attribute control mode (0/1)
+        Return:
+            None
+
+    Set color select register
+        Entry:
+            AL=13H
+            BL=1
+            BH=value for color select register (0..3 for attribute
+               control mode 0, 0..255 for mode 1).
+        Return:
+            None
+
+
+Author and reference
+--------------------
+This document and the DEMO1 and FLASH1 modules are by:
+
+                             Chris Dunford
+                        The Cove Software Group
+                              PO Box 1072
+                           Columbia MD 21044
+                              301/992-9371
+                         CompuServe 76703,2002
+
+The document is copyright (C) 1989 by the author.  Permission is granted
+to distribute freely by electronic or other means, but it may not be
+republished without permission.
+
+Reference (and a darn good one, too): Programmer's Guide to IBM PC and
+PS/2 Video Systems; Richard Wilton, Microsoft Press 1987.
+
+10/09/89

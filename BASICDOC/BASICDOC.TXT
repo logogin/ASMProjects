@@ -1,0 +1,199 @@
+
+                      Mode 13h Documentary Version 1.0
+컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴
+  Written By : Vulture                    Total Files  : 2
+  File Type  : Textfile                   Release Date : 10th of May 1995
+  Difficulty : Basic level                Filename     : BASICDOC.ZIP
+컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴
+
+Welcome to yet another textfile by Vulture. I decided to write this file for
+all starting gfx coders coz I think it is very important to fully understand
+the basics. When I started to code graphics, I lost a lotta time just because
+I did not acctually knew what I was doing. Maybe this text will prevend this
+to happen again to other coders. This file was written for those of you who
+really want to get into vga-programming. I will be using plain Turbo Pascal
+and just a very small bit of assembler. It won't be very hard to understand.
+Yeah, I know there are already lots of trainers on this subject available but
+I also have experienced that it can be helpful to read various trainers on the
+same subject. Anyway, off we go....
+
+=-=-=-=-=-=-=-=-=-=-=-=-=-= MODE 13H DOCUMENTARY =-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+Ok, let's start. I will refer to mode 13h as MCGA mode coz this is (probably)
+the official name of the mode. The MCGA mode has a resolution of 320*200*256
+which means that we have 320 pixels along the X-axis and 200 pixels along the
+Y-axis. We also have no less than 256 colors to our disposal. Great huh? :)
+Now, how do we get into this great grafix mode? I mean, before we can do any
+graphic related stuff such as plotting pixels, we have to get into the video
+mode first. This is done using a bit of inline assembler. Here it is:
+
+Procedure VideoMode(Mode: Byte); Assembler;  { Used to switch videomodes }
+Asm
+   mov  ah,00             { Set high byte of ax }
+   mov  al,Mode           { Select the mode here }
+   int  10h               { Call video interrupt }
+End;
+
+The 'Mode' variable should contain $13 if you want to get in gfx-mode or else
+$3 if you want to get to text-mode. Pretty easy, uh? :)
+
+=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+Right, now we have entered the videomode 13h. What we need to know now is the
+way things are organized in the vga memory when using MCGA mode.
+This is acctually very easy.
+
+Layout of a VGA-mode 13h screen:
+
+                                  X-AXIS
+
+      0. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .319
+      320. . . . . . . . . . . . . . . . . . . . . . . . . . . . . .639
+ Y    640. . . . . . . . . . . . . . . . . . . . . . . . . . . . . .959
+ A    960. . . . . .
+ X
+ I                               etc etc etc
+ S
+                                                       . . . . . . .63679
+      63680. . . . . . . . . . . . . . . . . . . . . . . . . . . . .63999
+
+So, as you can see here, the VGA memory in this mode is lineair. To be more
+exact: When you show pixel 319, you will see a pixel in the upperRIGHT corner
+of the screen. But when you fill pixel 320, you will then see a pixel in the
+upperLEFT corner on line 1! (know that the upperleft corner is location 0,0)
+But in vga memory these values are situated next to eachother. It may sound a
+little strange at this moment but you'll get the hang of it soon.
+
+=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+Ok, let's continue. As shown above, we can have 320 pixels on 1 line. This
+gives us a maximum of 200 lines. Coz 320*200=64000 and we have 64000 pixels
+available. Hmm, you probably want to start plotting pixels, eh? Ok, that's
+exactly what we are gonna do now... :)
+
+You can place pixels on the screen by pointing to the spot you want filled
+and giving the color of the dot. The color is a number between 0 and 255 coz
+we have 256 colors. Now, suppose you want to place a pixel in exactly the
+middle of the screen with color blue. What you have to know then is the X and
+Y-value of that position and the colorvalue of blue. Well, the X-value should
+be 160 since 320/2=160 is the middle of a line. Our Y-value should be 100 coz
+200/2 is 100. The colorvalue of blue is 1 (when using the standard pallette).
+When you know all this, you must calculate the position on the screen since
+the screen layout is lineair and does not work with X and Y values. This is
+the formula to do that: Y*320+X. Think about it. It really should be very
+easy to understand. So easy infact, that I'm not gonna explain it here...
+(hehe, evil grin:))
+
+Anyway, here's a pascal procedure which plots a pixel at X,Y:
+
+Procedure Putpixel(X,Y: Integer; Col: Byte);
+Begin
+  Mem[VGA:(Y*320)+X]:=Col;
+End;
+
+Why don't you try X=160, Y=100 and Col=1? You'll see what I mean...
+The 'VGA' is a constant which resembles the VGA-segment $a000. This is another
+aspect to be understood well. To put it simply it means that 'VGA' points to
+the start of the screen. When you plot a pixel you are using a segment and an
+offset. The VGA segment is $a000. So, to be more exact: $a000:00000 represents
+the upperleft corner of the screen. When you are pointing to a certain pixel,
+you are pointing to it's offset from the segment. Think of it this way: The
+segment is the start of the screen and the offset is the exact place within
+this segment. As said before, you can only adress 64000 pixels in MCGA mode.
+(Hmm, acctually 64kB can be adressed but the last bytes are not shown)
+Well, you should create a constant 'VGA' by doing this:
+
+Const VGA = $a000;
+
+The above putpixel procedure isn't real fast but it is fast enough for our
+purposes right now. If you really want a fast one, you should convert it to
+assembler. That's what I have done myself.
+
+Well, this is all I was about to explain in this short tutorial. You can now
+get into the vgamode and plot pixels all across the screen. You should be able
+to understand the memory layout in this mode and also the basics behind the
+segment and offset things. Take a look at the sample program for a quick
+example. It's all pretty basic stuff but be sure to fully understand it all
+before moving on to all kinds of cewl fx you want to create. You can loose a
+lot of time when you are just fooling around a bit. I know what I'm talking
+about... :)
+
+=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+This document was written by Vulture. Although many things concerning MCGA
+have not been discussed here, this text should be of some help to you. It's
+enough to get you started. Maybe in the future updated versions of this file
+will be released but that remaines to be seen.
+
+Hmm, well, the following cr*p is supposed to be stated so here we go:
+I (Vulture) take no responsibility for any mistakes found in this document.
+So use at your own risk. If you spot errors or have something to add to the
+text, don't hesitate to contact me. Phew, that's that... :)
+
+Wanna contact me for any reason? Then call FireHouse BBS: +31 (0)58-661590
+Or if you have e-mail leave me mail at: comma400@tem.nhl.nl    (prevered!)
+Don't hestitate to mail me, coz I like to chat with my fellowcoderz.
+
+
+          Signed:   Vulture
+
+=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+Now follows a sample-program which demonstrates the putpixel procedure. Play
+with it and learn. . . You could try to draw horizontal and vertical lines...
+
+Program MCGASample;       { Demonstrates the basic mode 13h }
+
+Uses Crt;
+
+Const VGA = $a000;        { The VGA segment }
+
+Var Ch: Char;
+
+Procedure VideoMode(Mode: Byte); Assembler;  { Used to switch videomodes }
+Asm
+   mov  ah,00             { Set high byte of ax }
+   mov  al,Mode           { Select the mode here }
+   int  10h               { Call video interrupt }
+End;
+
+Procedure Putpixel (X,Y: Integer; Col: Byte);
+Begin                     { Puts a pixel at X,Y with color Col }
+  Mem[VGA:(Y*320)+X] := Col;
+End;
+
+Begin
+  RandoMize;
+  VideoMode($13);       { Get in graphics mode }
+  Repeat
+    PutPixel(Random(320), Random(200), Random(255));
+  Until KeyPressed;     { Draw pixels on the screen until a key is pressed }
+  Ch := Readkey;
+  VideoMode($3);        { Get in text mode }
+End.
+
+That's it for now... Bye!
+
+컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴�
+
+ Greetz to: DemoLisher, Reckless, The Machine, Utter Chaos, Useless, Crusher,
+            Mad-Man, Xplorer, Land Vane, Nutcracker, Draeden and all other
+            people who would like to be greeted... :)
+
+컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴�
+ Releases so far:
+
+            - MESSAGE         ( Scrolls dos-parameters on VGA )
+            - PACKXXX         ( Small BBS intros. XXX is the versionnumber )
+            - VGA-VUL1        ( Source code to a simple intro )
+            - CHAINDOC        ( Textfile explaining chain-4 videomodes )
+            - BASICDOC        ( Textfile explaining videomode 13h basics }
+
+ Coming up (probably):
+
+            - VGA-VUL2        ( More intro source code )
+
+ All my releases are available at FireHouse, Napalm Assault and other crewl
+ boardz all around Holland. Check it out.
+컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴�
+

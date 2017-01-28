@@ -1,0 +1,19 @@
+sseg segment stack
+sseg ends
+
+dseg segment
+dseg segment
+
+cseg segment
+  assume ss:sseg,cs:cseg,ds:dseg
+main:
+   mov ax,dseg
+   mov ds,ax
+;--------------------------------
+
+;--------------------------------
+   move ah,4ch
+   mov al,00
+   int 21h
+cseg ends
+end main

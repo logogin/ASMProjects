@@ -1,0 +1,83 @@
+									       
+			‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹                                     
+		       €                           €                                    
+		       € €€€€ €€€€ €€€€€€€ €€€€€€  €                                    
+		       € €€€ € €€€ €€€ €€€ €€€ €€€ €                                    
+		       € €€€   €€€ €€€ €€€ €€€ €€€ €                                    
+		       € €€€   €€€ €€€€€€€ €€€€€€  €                                    
+		       €                           €                                    
+		       ﬂﬂﬂﬂﬂ€ €€€€      €€€€€€ €ﬂﬂﬂﬂ                                    
+		       ﬂﬂﬂﬂ €  €€€      €€€  € € ﬂﬂﬂ                                    
+			    €  €€€      €€€  € €                                        
+			    €  €€€  €€  €€€€€€ €                                        
+			    €                  €                                        
+			    ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ                                        
+			     ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ                                         
+			
+			Documentation Text for Mod 1.0 
+
+  
+				  by Dake
+	   ------------------------------------------------------
+		 http://www.omedia.ch/pages/dake/index.htm 
+		 http://www.omedia.ch/pages/dake/idxang.htm       
+			      dake@omedia.ch
+	   -------------------------------------------------------
+
+
+
+
+ * Why Mod 1.0 ?
+   """""""""""""
+   Mod 1.0 is an utility who toggle between different text modes under the
+   DOS prompt. It's useful for ASCII pictures because the standard mode 
+   isn't a good one for viewing ASCII.
+ 
+ * Why this good text for this bad util ?
+   """"""""""""""""""""""""""""""""""""""
+   I don't know - please ask B.Gts
+
+ * Requirements
+   """"""""""""
+   A 286 is enough. 
+   
+   Tested on a 486sx25 / Trident VGA card / DOS 5.0 / 4 Mb RAM
+	  with a DOS prompt with WINDOWS
+	  under the DOS prompt without WINDOZ.
+	  with SMARTDRIVE
+   
+   On my computer, Vesa text's scrolling doesn't work well. 
+   
+
+ * How to use it ? 
+   """""""""""""""
+   MOD [choice]     Ex: MOD /3   for text mode 80x30
+
+   Choices are /1 /2 /3 /4 /5 /6 /7 /8 /9           
+   
+   With the /9, you could view ASCII pictures who requiered
+   a white backround.
+
+   ! If you have problems when you run MOD and it doesn't print help
+   on screen, launch MOD with a space after 'D'
+
+ * Distribution
+   """"""""""""
+   Mod 1.0 is distributed as EMAIL-WARE. You can share and use this utility
+   as long as you respect this :
+
+   - You copy it without modifications and/or commercial use
+   - You copy it to all your friends
+   - You send me an E-Mail to tell me that you use my util.
+
+   You can copy and distribue this on any BBS, FTP server, CD,....
+   You take full responsibility for the operation of this software and 
+   any consequences thereof.  Me the creator can't accept liability for 
+   damages or failures arising from the use of this software.
+
+   If you really want to crash your computer, go buy one liter of 
+   nitroglycerin.
+
+   Blah...Blah...Blah....
+ 
+  
